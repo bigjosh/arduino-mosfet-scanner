@@ -5,13 +5,11 @@ one question about a MOSFET: *is it viable for cascaded digital logic?* It sweep
 gate and drain voltages and reports **gate leakage** plus **Ids(Vds, Vgs)** maps
 for positive and negative gate bias.
 
-Pins are named **High / Gate / Low** (not drain/source/gate) so the same rig
-works for N- and P-channel parts. Drive it from your **phone**, a **desktop
-browser**, or **Python** — same firmware, same protocol.
+The hardware fits in your pocket and the software runs on your (Android) phone so you can take it into the clean room with you. 
 
-▶ **Try the UI right now, no hardware:** <https://bigjosh.github.io/arduino-mosfet-scanner/?demo>
+<img width="1080" height="2404" alt="2026-06-17 22 52 17" src="https://github.com/user-attachments/assets/12759c45-ba9c-48f6-ae8a-24b4ef02143e" />
 
-![Wiring schematic](hardware/wiring.png)
+**Try the UI right now, no hardware:** <https://bigjosh.github.io/arduino-mosfet-scanner/?demo>
 
 ## What's in this repo
 
@@ -58,6 +56,14 @@ measurement. (Terminal equivalent: `python bring-up.py`.)
 Drop a MOSFET into the socket, set the sweep on the **Scan** tab (defaults give a
 ~2–3 min quick-look), and run. Live curves; results save to in-app History and
 export as CSV.
+
+Note that pins are named **High / Gate / Low** (not drain/source/gate) so the same rig
+works for N- and P-channel parts.
+
+Also note that the reverse scan sets the **Low** pin to +5V and then sweeps the **High** pin. This limits the sum of the **Gate** and **High** pin to 5V, so for **Gate**=-1V, 
+the actual voltage on the low pin is 5V and the gate pin is 4V, so the max voltage Low->High is 4V (when **High** pin is 0V).  Make sense? 
+
+Also note that we get the highest resolutuion when the Low Resistor tap is between 0-1.1V so try to pick your resistor value appropiately based on your desired current range. 
 
 ## What you get out
 
