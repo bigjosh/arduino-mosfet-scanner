@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+
+# Android build artifacts + signing secrets — NEVER commit these
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/keystore.properties
+android/release.keystore
+
+# Local APK build helper output
+_apk_build.*
+
+# Measurement outputs / generated artifacts
+host-tools/scan-arduino-*.csv
+host-tools/scan-arduino-*.png
+host-tools/bringup-*.csv
+host-tools/bringup-*.png
+*_selftest.csv
+*_selftest.png
