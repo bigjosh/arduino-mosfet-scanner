@@ -20,6 +20,7 @@ The hardware fits in your pocket and the software runs on your (Android) phone s
 | [`docs/`](docs/) | The **web app** (a PWA served by GitHub Pages): live charts, scan history, guided bring-up. |
 | [`android/`](android/) | The **Android shell app** — a thin WebView wrapper that adds a native USB-serial bridge (plain Chrome on Android can't reach wired serial devices). |
 | [`host-tools/`](host-tools/) | Optional **Python** desktop tools (`scan_arduino.py`, `bring-up.py`) — the original reference the web app mirrors. |
+| [`THEORY_OF_OPERATION.md`](THEORY_OF_OPERATION.md) | **How it all works** — voltage generation, current sensing, the ADC strategy, why each resistor is its value, the firmware protocol, and the software stack (incl. why Android needs a wrapper). |
 | [`plan.md`](plan.md) · [`spec.md`](spec.md) | Design rationale, calibration strategy, v2 roadmap. |
 
 ## Getting started: fresh build → first scan
