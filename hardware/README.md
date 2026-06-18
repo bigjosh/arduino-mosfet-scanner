@@ -10,7 +10,7 @@ the Gate controls it. **Low is the grounded current return in v1.**
 ## Bill of materials (~$30)
 
 - **Arduino Uno R3** (or clone), ATmega328P.
-- **2× MCP4725** I2C DAC breakouts — any vendor; **no address straps needed**
+- **2× MCP4725** I2C DAC breakouts — any vendor, but I used[ these for about $2 each](https://amzn.to/3QwwCVj); **no address straps needed**
   (each DAC gets its own SCL line, so both can sit at 0x60).
 - **R_low = 1 kΩ** 0.1 %, in a socket/header (swap to 10 kΩ for low-current DUTs
   ≤ 100 µA). Sets the channel-current scale.
@@ -60,6 +60,8 @@ Each `MEAS?` reads every pin under **both** the 1.1 V internal reference (for
 resolution) and the ~5 V rail reference (for range); the host auto-picks the
 in-range reading per node. The board also self-measures its VDD each reading, so
 the scale tracks the (USB-drifting) rail.
+
+For best current resoltuion, try to pick your low side resistor to keep the voltage 0-1.1V. 
 
 ## CSV output schema
 
