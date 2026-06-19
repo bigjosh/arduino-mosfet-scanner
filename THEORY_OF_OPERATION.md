@@ -12,12 +12,13 @@ see [plan.md](plan.md).
 3. [Generating the scan voltages](#3-generating-the-scan-voltages)
 4. [Measuring current](#4-measuring-current)
 5. [The ADC: < 5 % from a 10-bit converter](#5-the-adc--5-from-a-10-bit-converter)
-6. [Why each resistor is what it is](#6-why-each-resistor-is-what-it-is)
-7. [LOW_IO and the three-phase cycle](#7-low_io-and-the-three-phase-cycle)
-8. [Firmware: protocol and robustness](#8-firmware-protocol-and-robustness)
-9. [The software stack and why Android needs a wrapper](#9-the-software-stack-and-why-android-needs-a-wrapper)
-10. [One measurement, end to end](#10-one-measurement-end-to-end)
-11. [Limits of this version (v1)](#11-limits-of-this-version-v1)
+6. [Dual-reference selection: crossover, cutoff, and resolution](#6-dual-reference-selection-crossover-cutoff-and-resolution)
+7. [Why each resistor is what it is](#7-why-each-resistor-is-what-it-is)
+8. [LOW_IO and the three-phase cycle](#8-low_io-and-the-three-phase-cycle)
+9. [Firmware: protocol and robustness](#9-firmware-protocol-and-robustness)
+10. [The software stack and why Android needs a wrapper](#10-the-software-stack-and-why-android-needs-a-wrapper)
+11. [One measurement, end to end](#11-one-measurement-end-to-end)
+12. [Limits of this version (v1)](#12-limits-of-this-version-v1)
 
 ---
 
@@ -137,7 +138,7 @@ I_gs = (V_cmd_G − V_A1) / R_gate
 `V_cmd_G` is the commanded DAC voltage; `V_A1` is what the gate node actually
 sits at. If the gate doesn't leak, no current flows through R_gate and
 `V_A1 ≈ V_cmd_G` → I_gs ≈ 0. If it leaks, the node sags and the sag *is* the
-current. (Limits in §6.)
+current. (Limits in §7.)
 
 ### Bias readback — burden-corrected, not assumed
 Because the Low node lifts off ground under load, Vgs/Vds are computed from
@@ -167,7 +168,9 @@ nodeVolts()`): use the 1.1 V reading while it's below ~1010 counts (≈ 1.08 V),
 otherwise fall back to the 5 V reading. If even the 5 V reading rails (≥ ~1010
 counts ≈ 4.93 V) the point is tagged `flag=clip`. No range modes, no firmware
 state, no contradictions — a node near GND gets ~1 µA/LSB resolution while a node
-near the rail is simply read on the coarse reference.
+near the rail is simply read on the coarse reference. The exact crossover, the
+per-reference resolution, and the reason the cutoff sits below full scale are
+detailed in [§6](#6-dual-reference-selection-crossover-cutoff-and-resolution).
 
 ### AREF settling — the subtle part
 Only one reference is active at a time, so `MEAS?` reads all four pins on AVcc,
@@ -197,7 +200,79 @@ against a DMM during bring-up — is what pulls the whole chain inside 5 %, beca
 the bandgap is the reference that the rail measurement, the DAC scale, and the
 5 V-ref readings all depend on.
 
-## 6. Why each resistor is what it is
+## 6. Dual-reference selection: crossover, cutoff, and resolution
+
+§5 covered *why* every node is read under both references; this is the exact
+selection rule, the numbers behind it, and the reason the cutoff sits where it
+does.
+
+### Resolution at each reference
+The ADC is 10-bit (0–1023 counts), so each reference's LSB is its full scale ÷ 1024:
+
+| Reference | LSB (voltage) | LSB current @ R_low = 1 kΩ | @ 10 kΩ |
+| --- | --- | --- | --- |
+| INTERNAL 1.1 V | 1.1 / 1024 ≈ **1.07 mV** | ≈ **1.07 µA** | ≈ 0.107 µA |
+| AVcc ≈ 5 V | 5.0 / 1024 ≈ **4.9 mV** | ≈ **4.9 µA** | ≈ 0.49 µA |
+
+The 1.1 V reference is **~4.6× finer** (5.0 / 1.1). That factor is the whole
+point of carrying it: small signals resolve far better on the internal reference
+than the 5 V reference could ever manage.
+
+### The selection rule (per node)
+`convert.js nodeVolts()` decides independently for each node from its two counts,
+`c_1V1` and `c_5V`:
+
+```
+if  c_1V1 < 1010 :  V = (c_1V1 / 1024) × V_ref_int     // fine reading
+else             :  V = (c_5V  / 1024) × VDD           // coarse reading
+                    clip = (c_5V ≥ 1010)
+```
+
+- **Crossover.** 1010 counts on the 1.1 V reference = 1010/1024 × 1.1 ≈
+  **1.085 V**. Below it a node uses the fine reference; at/above it, the coarse
+  one. In channel-current terms (R_low = 1 kΩ) the crossover is ≈ **1.085 mA** —
+  below it you resolve to ~1.07 µA, above it to ~4.9 µA.
+- **Per-node and independent.** A0 and A3 (the two ends of R_low) are selected
+  separately, so `Ids = (V_A0 − V_A3)/R_low` may combine a fine reading on one end
+  with a coarse reading on the other. In a forward scan both ends sit near ground
+  → both fine; in the reverse scan (LOW_IO = 5 V) both sit near the rail → both
+  coarse (~4.9 µA/LSB).
+- **The `clip` flag.** When even the coarse reading is pinned (`c_5V ≥ 1010`, ≈ ≥
+  4.93 V) the node has railed on *both* references — the reported value is a
+  floor/ceiling, not a real measurement, so the point is tagged `flag=clip`.
+
+### Why the cutoff is 1010, not 1023
+Full scale is 1023, yet the fine reading is abandoned ~13 counts (~14 mV) early,
+at a node voltage of ~1.085 V rather than the ~1.10 V reference ceiling. Three
+reasons, in order of importance:
+
+1. **Saturation ambiguity.** Above the 1.1 V reference the ADC pins at 1023, and a
+   pinned reading can't tell 1.10 V from 5 V apart. Only a value *strictly inside*
+   the linear region is trustworthy, which already rules out the top codes.
+2. **One-sided clipping bias on the average.** `MEAS?` averages 32 samples
+   (`avgN`). Near full scale, per-sample noise pushes some samples past 1023,
+   where the hardware *clamps* them to 1023. Truncating only the high tail drags
+   the 32-sample mean **below** the true value, so a node genuinely at ~1.09 V
+   reads low. Keeping the average out of that regime is the main reason the cutoff
+   sits well back from 1023, not just one count below it.
+3. **Top-code nonlinearity.** The ATmega328P ADC's INL/DNL degrade near both
+   rails; the highest codes are its least accurate. Trimming them keeps the fine
+   reading honest.
+
+So 1010 (≈ 1.085 V) is where the fine reading is still unambiguous, unbiased, and
+linear. The handful of counts between there and the ~1.10 V ceiling are exactly
+the untrustworthy ones — which is why pushing the crossover higher buys almost
+nothing real.
+
+### Considered alternative (not used)
+You could instead decide from the full-range 5 V reading — it never saturates, so
+it could authorize the fine reading right up to the true ~1.10 V ceiling, gaining
+~1 % more high-resolution range. We keep the simple count threshold because that
+recovered ~1 % *is* the clipping-biased, nonlinear top-of-range — not worth the
+extra logic. The real levers for more high-resolution current range are R_low (the
+socketed 10 kΩ option) and the v2 current-sense front end.
+
+## 7. Why each resistor is what it is
 
 | Part | Value | Reasoning |
 | --- | --- | --- |
@@ -206,7 +281,7 @@ the bandgap is the reference that the rail measurement, the DAC scale, and the
 | **100 Ω** (High) | **100 Ω** | Short protection: if the High pin shorts to Low, current is limited to ≈ 5 V/(100 Ω + R_low) ≈ 4.5 mA — safe for the DAC and board. A2 senses *after* it (at the pin), so it reads true High-pin voltage under load and costs no accuracy. |
 | **Cap on A1** | **~5 nF** (5–10 nF) | The 1 MΩ gate node has far too high a source impedance for the AVR's sample-and-hold (which wants < 10 kΩ); without a charge reservoir the ADC would under-sample it. 5 nF gives τ = R_gate·C = 5 ms — much faster than the 200 ms gate-settle, so it adds no measurement lag. |
 
-## 7. LOW_IO and the three-phase cycle
+## 8. LOW_IO and the three-phase cycle
 
 **LOW_IO (D3)** is an ordinary GPIO used as a switchable current return:
 `LOWIO 0` drives it low (ground return — normal), `LOWIO 1` drives it to 5 V
@@ -232,7 +307,7 @@ A full device cycle is three phases (`scan.js`, mirroring `scan_arduino.py`):
 Defaults (100 mV / 250 mV steps) give a ~2–3 min quick-look at ~65 ms/point,
 dominated by the dual-reference `MEAS?`.
 
-## 8. Firmware: protocol and robustness
+## 9. Firmware: protocol and robustness
 
 - **Line protocol, 115200 8N1.** One ASCII command per line, exactly one reply
   line per command — trivial to drive from any language and to reason about (the
@@ -248,7 +323,7 @@ dominated by the dual-reference `MEAS?`.
   connects. `setup()` zeroes both DACs immediately, and `SAVEZERO` writes 0 V
   into the DAC EEPROMs so even a cold power-up (no host) starts at 0 V.
 
-## 9. The software stack and why Android needs a wrapper
+## 10. The software stack and why Android needs a wrapper
 
 The same web app (`docs/`, a static PWA on GitHub Pages) runs everywhere. It
 talks to the rig through one of three interchangeable **transports**
@@ -317,7 +392,7 @@ in a `MockTransport` that simulates the firmware *and* a synthetic FET, so the
 entire app — scan, abort, history, CSV, the full bring-up wizard — runs and is
 testable with no hardware.
 
-## 10. One measurement, end to end
+## 11. One measurement, end to end
 
 Tracing a single point ties it all together:
 
@@ -334,7 +409,7 @@ Tracing a single point ties it all together:
 
 The firmware never knew a MOSFET was involved.
 
-## 11. Limits of this version (v1)
+## 12. Limits of this version (v1)
 
 These are deliberate scope cuts to get the full chain working cheaply; each has a
 v2 path in [plan.md](plan.md).
